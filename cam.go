@@ -138,7 +138,6 @@ func (cam *Camera) Subscribe() (<-chan Frame, error) {
 func (cam *Camera) Unsubscribe(unsub <-chan Frame) bool {
 	for i, l := range cam.listeners {
 		if unsub == l {
-			close(l)
 			if len(cam.listeners) == 1 {
 				cam.stop()
 				cam.listeners = make([]chan Frame, 0)
@@ -148,6 +147,7 @@ func (cam *Camera) Unsubscribe(unsub <-chan Frame) bool {
 					cam.listeners[i+1:]...,
 				)
 			}
+			close(l)
 			return true
 		}
 	}
