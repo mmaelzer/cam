@@ -101,10 +101,21 @@ func (cam *Camera) read(mr *multipart.Reader) {
 		go cam.start()
 	}()
 
+	start := time.Now()
+	frames := 0
+
 	for i := 0; true; i++ {
 		part, err := mr.NextPart()
 
-		// cam.logf("[%s:%d] received frame", cam.Name, i)
+		if cam.Log {
+			frames++
+		}
+
+		if cam.Log && time.Since(start) > time.Minute {
+			cam.logf("[%s] received %d frames in %s", cam.Name, frames, time.Since(start))
+			start = time.Now()
+			frames = 0
+		}
 
 		if err != nil {
 			if err == io.EOF ||
@@ -134,15 +145,12 @@ func (cam *Camera) read(mr *multipart.Reader) {
 			Bytes:      jpeg,
 			Timestamp:  time.Now(),
 		}
-		go cam.emit(frame)
+		cam.emit(frame)
 	}
 }
 
 // emit will send frames to cam listeners
 func (cam *Camera) emit(frame Frame) {
-	// if cam.Log {
-	// 	log.Printf("[%s:%d] emit frame\n", frame.CameraName, frame.Number)
-	// }
 	for _, l := range cam.listeners {
 		l <- frame
 	}
