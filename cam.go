@@ -11,18 +11,21 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 // A Camera is a set of configuration data for an mjpeg camera
 type Camera struct {
-	Name      string        // name of the camera; name will be passed along with frames
-	URL       string        // url of the camera
-	Username  string        // optional username for basic authentication
-	Password  string        // optional password for basic authentication
-	Log       bool          // should log
+	Name      string // name of the camera; name will be passed along with frames
+	URL       string // url of the camera
+	Username  string // optional username for basic authentication
+	Password  string // optional password for basic authentication
+	Log       bool   // should log
+	LastFrame *Frame
 	body      io.ReadCloser // a reference to the http response body
 	listeners []chan Frame  // slice of channels returned from the Subscribe method
+	mutex     sync.Mutex
 }
 
 // A Frame is a container for jpeg data from a Camera
@@ -93,16 +96,34 @@ func (cam *Camera) logf(t string, l ...interface{}) {
 	}
 }
 
+func (cam *Camera) keepalive() {
+	time.Sleep(time.Second * 10)
+	if cam.LastFrame != nil &&
+		time.Since(cam.LastFrame.Timestamp) > time.Second*10 {
+		cam.stop()
+	} else {
+		go cam.keepalive()
+	}
+}
+
 // read will read data from the response until eof or the response
 // body is closed
 func (cam *Camera) read(mr *multipart.Reader) {
+	// Never stop reading
 	defer func() {
 		cam.logf("[%s] Reconnecting", cam.Name)
-		go cam.start()
+		err := cam.start()
+		for err != nil {
+			log.Printf("[%s] Unable to reconnect. Retrying...", cam.Name)
+			time.Sleep(time.Second * 3)
+			err = cam.start()
+		}
 	}()
 
 	start := time.Now()
 	frames := 0
+
+	go cam.keepalive()
 
 	for i := 0; true; i++ {
 		part, err := mr.NextPart()
@@ -145,6 +166,7 @@ func (cam *Camera) read(mr *multipart.Reader) {
 			Bytes:      jpeg,
 			Timestamp:  time.Now(),
 		}
+		cam.LastFrame = &frame
 		cam.emit(frame)
 	}
 }
@@ -161,10 +183,14 @@ func (cam *Camera) emit(frame Frame) {
 func (cam *Camera) Subscribe() (<-chan Frame, error) {
 	var err error
 	l := make(chan Frame, 20)
-	cam.listeners = append(cam.listeners, l)
-	if len(cam.listeners) == 1 {
+	if len(cam.listeners) == 0 {
 		err = cam.start()
 	}
+	go func() {
+		cam.mutex.Lock()
+		cam.listeners = append(cam.listeners, l)
+		cam.mutex.Unlock()
+	}()
 	return l, err
 }
 
@@ -174,16 +200,22 @@ func (cam *Camera) Subscribe() (<-chan Frame, error) {
 func (cam *Camera) Unsubscribe(unsub <-chan Frame) bool {
 	for i, l := range cam.listeners {
 		if unsub == l {
-			if len(cam.listeners) == 1 {
-				cam.stop()
-				cam.listeners = make([]chan Frame, 0)
-			} else {
-				cam.listeners = append(
-					cam.listeners[:i],
-					cam.listeners[i+1:]...,
-				)
-			}
-			close(l)
+			go func() {
+				if len(cam.listeners) == 1 {
+					cam.stop()
+					cam.mutex.Lock()
+					cam.listeners = make([]chan Frame, 0)
+					cam.mutex.Unlock()
+				} else {
+					cam.mutex.Lock()
+					cam.listeners = append(
+						cam.listeners[:i],
+						cam.listeners[i+1:]...,
+					)
+					cam.mutex.Unlock()
+				}
+				close(l)
+			}()
 			return true
 		}
 	}
