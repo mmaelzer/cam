@@ -23,7 +23,7 @@ type Camera struct {
 	Password  string // optional password for basic authentication
 	Log       bool   // should log
 	LastFrame *Frame
-	AutoRetry bool          // should automatically retry
+	Reconnect bool          // should automatically retry
 	body      io.ReadCloser // a reference to the http response body
 	listeners []chan Frame  // slice of channels returned from the Subscribe method
 	mutex     sync.Mutex
@@ -99,7 +99,7 @@ func (cam *Camera) logf(t string, l ...interface{}) {
 }
 
 func (cam *Camera) keepalive() {
-	if cam.locked {
+	if cam.locked || !cam.Reconnect {
 		return
 	}
 	cam.locked = true
@@ -117,7 +117,7 @@ func (cam *Camera) keepalive() {
 // body is closed
 func (cam *Camera) read(mr *multipart.Reader) {
 	defer func() {
-		if !cam.AutoRetry {
+		if !cam.Reconnect {
 			return
 		}
 
@@ -133,7 +133,7 @@ func (cam *Camera) read(mr *multipart.Reader) {
 	start := time.Now()
 	frames := 0
 
-	if cam.AutoRetry {
+	if cam.Reconnect {
 		go cam.keepalive()
 	}
 
@@ -198,9 +198,11 @@ func (cam *Camera) Subscribe() (<-chan Frame, error) {
 	if len(cam.listeners) == 0 {
 		err = cam.start()
 	}
-	cam.mutex.Lock()
-	cam.listeners = append(cam.listeners, l)
-	cam.mutex.Unlock()
+	go func() {
+		cam.mutex.Lock()
+		cam.listeners = append(cam.listeners, l)
+		cam.mutex.Unlock()
+	}()
 	return l, err
 }
 
@@ -210,22 +212,29 @@ func (cam *Camera) Subscribe() (<-chan Frame, error) {
 func (cam *Camera) Unsubscribe(unsub <-chan Frame) bool {
 	for i, l := range cam.listeners {
 		if unsub == l {
-			if len(cam.listeners) == 1 {
-				cam.stop()
-				cam.mutex.Lock()
-				cam.listeners = make([]chan Frame, 0)
-				cam.mutex.Unlock()
-			} else {
-				cam.mutex.Lock()
-				cam.listeners = append(
-					cam.listeners[:i],
-					cam.listeners[i+1:]...,
-				)
-				cam.mutex.Unlock()
-			}
-			close(l)
+			go func() {
+				if len(cam.listeners) == 1 {
+					cam.Stop()
+				} else {
+					cam.mutex.Lock()
+					cam.listeners = append(
+						cam.listeners[:i],
+						cam.listeners[i+1:]...,
+					)
+					cam.mutex.Unlock()
+				}
+				close(l)
+			}()
 			return true
 		}
 	}
 	return false
+}
+
+func (cam *Camera) Stop() {
+	cam.Reconnect = false
+	cam.stop()
+	cam.mutex.Lock()
+	cam.listeners = make([]chan Frame, 0)
+	cam.mutex.Unlock()
 }
