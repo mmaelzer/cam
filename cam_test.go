@@ -7,6 +7,7 @@ import (
 	"net/textproto"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func setup() *httptest.Server {
@@ -83,7 +84,7 @@ func TestSubscribe(t *testing.T) {
 		}
 	}
 
-	camera.stop()
+	camera.Stop()
 }
 
 func TestUnsubscribe(t *testing.T) {
@@ -98,10 +99,14 @@ func TestUnsubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	sub2, err := camera.Subscribe()
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Sleeping since subscribe occurs on a separate goroutine
+	time.Sleep(time.Second * 1)
 
 	if ok := camera.Unsubscribe(sub1); !ok {
 		t.Fatal("Unable to unsubscribe channel")
@@ -115,6 +120,9 @@ func TestUnsubscribe(t *testing.T) {
 	if ok := camera.Unsubscribe(sub3); ok {
 		t.Fatal("Should not be able to unsubscribe a non-subscribed channel")
 	}
+
+	// Sleeping since unsubscribe occurs on a separate goroutine
+	time.Sleep(time.Second * 1)
 
 	if len(camera.listeners) > 0 {
 		t.Fatal("Unsubscribe did not remove all listeners")

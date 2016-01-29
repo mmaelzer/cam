@@ -137,7 +137,7 @@ func (cam *Camera) read(mr *multipart.Reader) {
 		go cam.keepalive()
 	}
 
-	for i := 0; true; i++ {
+	for i := 0; ; i++ {
 		part, err := mr.NextPart()
 
 		if cam.Log {
@@ -185,6 +185,9 @@ func (cam *Camera) read(mr *multipart.Reader) {
 
 // emit will send frames to cam listeners
 func (cam *Camera) emit(frame Frame) {
+	// Since there's no way to test if a channel is closed
+	// just recover
+	defer func() { recover() }()
 	for _, l := range cam.listeners {
 		l <- frame
 	}
@@ -195,11 +198,11 @@ func (cam *Camera) emit(frame Frame) {
 func (cam *Camera) Subscribe() (<-chan Frame, error) {
 	var err error
 	l := make(chan Frame, 20)
-	if len(cam.listeners) == 0 {
-		err = cam.start()
-	}
 	go func() {
 		cam.mutex.Lock()
+		if len(cam.listeners) == 0 {
+			err = cam.start()
+		}
 		cam.listeners = append(cam.listeners, l)
 		cam.mutex.Unlock()
 	}()
@@ -213,17 +216,17 @@ func (cam *Camera) Unsubscribe(unsub <-chan Frame) bool {
 	for i, l := range cam.listeners {
 		if unsub == l {
 			go func() {
+				cam.mutex.Lock()
 				if len(cam.listeners) == 1 {
 					cam.Stop()
 				} else {
-					cam.mutex.Lock()
 					cam.listeners = append(
 						cam.listeners[:i],
 						cam.listeners[i+1:]...,
 					)
-					cam.mutex.Unlock()
 				}
 				close(l)
+				cam.mutex.Unlock()
 			}()
 			return true
 		}
@@ -234,7 +237,5 @@ func (cam *Camera) Unsubscribe(unsub <-chan Frame) bool {
 func (cam *Camera) Stop() {
 	cam.Reconnect = false
 	cam.stop()
-	cam.mutex.Lock()
 	cam.listeners = make([]chan Frame, 0)
-	cam.mutex.Unlock()
 }
