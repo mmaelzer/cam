@@ -6,6 +6,7 @@ Cam is a package for connecting to and streaming data from mjpeg-cameras in Go.
 [![build status](https://secure.travis-ci.org/mmaelzer/cam.png)](http://travis-ci.org/mmaelzer/cam)
 [![Coverage Status](https://coveralls.io/repos/mmaelzer/cam/badge.svg?branch=master&service=github)](https://coveralls.io/github/mmaelzer/cam?branch=master)
 [![godoc reference](https://godoc.org/github.com/mmaelzer/cam?status.png)](https://godoc.org/github.com/mmaelzer/cam)
+[![go report card](https://goreportcard.com/badge/github.com/mmaelzer/cam)](https://goreportcard.com/badge/github.com/mmaelzer/cam)
 
 ## Example
 
