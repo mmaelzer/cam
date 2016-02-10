@@ -234,6 +234,7 @@ func (cam *Camera) Unsubscribe(unsub <-chan Frame) bool {
 	return false
 }
 
+// Stop closes the camera connection and removes all listeners
 func (cam *Camera) Stop() {
 	cam.Reconnect = false
 	cam.stop()
